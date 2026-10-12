@@ -1,4 +1,4 @@
-# Mini CDN sur Containerlab 
+# Mini CDN sur Containerlab (phases 0 à 3)
 
 Un CDN rapproche les contenus des utilisateurs : des serveurs **edge** gardent des copies en **cache**, et l'**origin** (qui possède les fichiers originaux) n'est contacté que si nécessaire. Containerlab fournit seulement le réseau et les conteneurs. **Toute l'intelligence du CDN est dans `app/server.py`.**
 
@@ -28,6 +28,56 @@ Le client n'a **aucun lien** vers l'origin : il passe toujours par un edge. Chaq
 - **La phase est dans `config/phase`**, relue à chaque requête. Pour passer de la phase 1 à la phase 2, on change un chiffre, sans redéployer.
 - **`edgeX/files/`** = contenu propre au nœud (dont `default.png`). **`edgeX/cache/`** = copies récupérées ailleurs. Séparer les deux permet de vider le cache sans toucher au contenu.
 - **En-têtes `X-Cache` et `X-Source`** : chaque réponse dit d'où elle vient (`LOCAL`, `HIT`, `MISS`, `FALLBACK` / `local`, `cache`, `origin`, `peer:...`). Ça rend le comportement visible en démo.
+
+## Cloner le projet et le faire tourner chez soi
+
+### Prérequis (une seule fois)
+
+Il faut **Linux** ou **WSL2 (Ubuntu)** sous Windows, avec **Docker Engine installé dans Linux/WSL**. Docker Desktop ne convient pas : Containerlab ne voit pas les ponts réseau de sa VM et échoue avec `Failed to lookup link "br-..."`.
+
+```bash
+# Git
+sudo apt-get install -y git
+
+# Docker Engine
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER      # puis fermer et rouvrir le terminal
+sudo service docker start          # WSL sans systemd ; sinon : sudo systemctl start docker
+
+# Containerlab (doc : https://containerlab.dev/install/)
+curl -sL https://containerlab.dev/setup | sudo -E bash -s "all"
+
+# Vérifier
+docker info | grep -i "operating system"   # doit afficher Ubuntu, pas Docker Desktop
+containerlab version
+```
+
+### Cloner et lancer
+
+```bash
+cd ~                                   # dans ton home Linux, pas dans /mnt/c (droits et fins de ligne Windows)
+git clone <URL_DU_DEPOT> cdn-lab
+cd cdn-lab
+chmod +x phase.sh test.sh
+docker pull alpine:latest && docker pull python:3.11-alpine   # optionnel : évite l'attente au 1er déploiement
+
+sudo containerlab deploy -t topo.clab.yml
+./phase.sh 0 && ./test.sh              # 5 vérifications réussies = tout fonctionne
+```
+
+Ensuite, enchaîne les phases 1, 2 et 3 (voir la section suivante). Le projet ne dépend de rien d'autre : les images de test sont dans le dépôt et les conteneurs sont téléchargés automatiquement.
+
+### Publier le projet (pour celui qui le partage)
+
+```bash
+cd ~/cdn-lab
+git add -A && git commit -m "CDN lab: phases 0 to 3"
+git branch -M main
+git remote add origin <URL_DU_DEPOT>   # dépôt vide créé sur GitHub
+git push -u origin main
+```
+
+`.gitignore` exclut les caches et `clab-cdn/`. `.gitattributes` force les fins de ligne Linux (LF) pour que les scripts `.sh` marchent aussi après un clone depuis Windows. Le fichier `config/phase` change à chaque `./phase.sh` : remets `./phase.sh 0` avant de commiter pour ne pas publier une phase au hasard.
 
 ## Lancer
 
@@ -94,6 +144,12 @@ Ordre : fichiers locaux, cache, puis **stratégie** pour choisir la source.
 | `No such container` | lab non déployé ou autre nom de lab | `docker ps`, le préfixe doit être `clab-cdn-` |
 | `Failed to lookup link "br-..."` | Docker Desktop au lieu de Docker Engine dans WSL | installer Docker Engine dans Ubuntu |
 | Les fichiers de `edgeX/cache/` appartiennent à root | normal (écrits depuis le conteneur) | `./phase.sh N` les vide |
+| `permission denied ... docker.sock` | ton utilisateur n'est pas dans le groupe `docker` | `sudo usermod -aG docker $USER`, puis rouvrir le terminal |
+| `bad interpreter: /usr/bin/env bash^M` | fins de ligne Windows (CRLF) dans les scripts | `sed -i 's/\r$//' *.sh`, ou recloner depuis WSL |
+| `./phase.sh: Permission denied` | bit d'exécution absent | `chmod +x phase.sh test.sh` |
+| `lab ... already deployed` | un déploiement précédent tourne encore | `sudo containerlab destroy -t topo.clab.yml --cleanup` |
+| Conflit de sous-réseau `172.20.20.0/24` | ce réseau est déjà utilisé sur la machine | `sudo containerlab destroy -t topo.clab.yml --cleanup` puis `docker network rm clab`, et ajouter sous `name: cdn` les lignes `mgmt:` et `  ipv4-subnet: 172.20.30.0/24` |
+| `apt-get update` échoue (dépôt non signé) | un dépôt tiers cassé (ex. Jenkins) | désactiver ce dépôt dans `/etc/apt/sources.list.d/` |
 
 Note : tous les nœuds ont aussi une interface de management Docker (`eth0`, 172.20.20.0/24) créée par Containerlab. Elle sert à Docker, pas au CDN : les tests utilisent uniquement les IP du plan ci-dessus.
 
