@@ -1,0 +1,82 @@
+name: cdn
+
+# Réseau (chaque lien = un sous-réseau /24) :
+#
+#   client --10.0.1.0/24-- edge1 --10.0.11.0/24-- origin
+#   client --10.0.2.0/24-- edge2 --10.0.12.0/24-- origin
+#                  edge1 --10.0.100.0/24-- edge2
+#
+# Le client n'a AUCUN lien vers origin : il passe toujours par un edge.
+
+topology:
+  nodes:
+    client:
+      kind: linux
+      image: alpine:latest
+      cmd: sleep infinity
+      exec:
+        - ip addr add 10.0.1.1/24 dev eth1
+        - ip addr add 10.0.2.1/24 dev eth2
+        - ip link set eth1 up
+        - ip link set eth2 up
+
+    origin:
+      kind: linux
+      image: python:3.11-alpine
+      env:
+        NODE: origin
+      binds:
+        - ./app/server.py:/app/server.py:ro
+        - ./config:/app/config:ro
+        - ./origin/files:/app/files:ro
+      cmd: python -u /app/server.py
+      exec:
+        - ip addr add 10.0.11.1/24 dev eth1
+        - ip addr add 10.0.12.1/24 dev eth2
+        - ip link set eth1 up
+        - ip link set eth2 up
+
+    edge1:
+      kind: linux
+      image: python:3.11-alpine
+      env:
+        NODE: edge1
+      binds:
+        - ./app/server.py:/app/server.py:ro
+        - ./config:/app/config:ro
+        - ./edge1/files:/app/files:ro
+        - ./edge1/cache:/app/cache
+      cmd: python -u /app/server.py
+      exec:
+        - ip addr add 10.0.1.2/24 dev eth1
+        - ip addr add 10.0.11.2/24 dev eth2
+        - ip addr add 10.0.100.1/24 dev eth3
+        - ip link set eth1 up
+        - ip link set eth2 up
+        - ip link set eth3 up
+
+    edge2:
+      kind: linux
+      image: python:3.11-alpine
+      env:
+        NODE: edge2
+      binds:
+        - ./app/server.py:/app/server.py:ro
+        - ./config:/app/config:ro
+        - ./edge2/files:/app/files:ro
+        - ./edge2/cache:/app/cache
+      cmd: python -u /app/server.py
+      exec:
+        - ip addr add 10.0.2.2/24 dev eth1
+        - ip addr add 10.0.12.2/24 dev eth2
+        - ip addr add 10.0.100.2/24 dev eth3
+        - ip link set eth1 up
+        - ip link set eth2 up
+        - ip link set eth3 up
+
+  links:
+    - endpoints: ["client:eth1", "edge1:eth1"]
+    - endpoints: ["client:eth2", "edge2:eth1"]
+    - endpoints: ["edge1:eth2", "origin:eth1"]
+    - endpoints: ["edge2:eth2", "origin:eth2"]
+    - endpoints: ["edge1:eth3", "edge2:eth3"]

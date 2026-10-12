@@ -1,0 +1,19 @@
+{
+  "origin": {
+    "role": "origin"
+  },
+  "edge1": {
+    "role": "edge",
+    "origin": "http://10.0.11.1",
+    "peers": ["http://10.0.100.2"],
+    "routes": {
+      "/video/": "origin"
+    }
+  },
+  "edge2": {
+    "role": "edge",
+    "origin": "http://10.0.12.1",
+    "peers": ["http://10.0.100.1"],
+    "routes": {}
+  }
+}
